@@ -51,7 +51,7 @@
 - 仓库：<https://github.com/bitwarden/clients>
 - CLI 标签：`cli-v2026.11.0`
 - Commit：`28b247ac34877882aaef4faea082a9f3bb201114`
-- 采用 GPL 构建入口；上游 `bitwarden_license` 商业模块另有许可，GitHub 公开仓库不包含该目录，也不包含私有仓库历史。保留上游许可证和版权声明。
+- 采用 GPL 构建入口；上游 `bitwarden_license` 商业模块另有许可（仅限内部开发测试，禁止分发和生产使用），本仓库和 GitHub 公开仓库均不包含该目录，GitHub 侧也不包含私有仓库历史。保留上游许可证和版权声明；如需找回商业模块，可从移除前的提交（`ff94635f` 及更早）中检出。
 
 ## 构建与使用
 

@@ -12,20 +12,13 @@ const expectedPaths = new Set([
   "README.bitwarden.md",
   "SECURITY.md",
 ]);
-const expectedDirectories = [
-  "bitwarden_license/",
-  ".github/DISCUSSION_TEMPLATE/",
-  ".github/ISSUE_TEMPLATE/",
-];
+const expectedDirectories = [".github/DISCUSSION_TEMPLATE/", ".github/ISSUE_TEMPLATE/"];
 
 try {
   if (git("status", "--porcelain", "--untracked-files=no").trim()) {
     throw new Error("Tracked changes exist; commit or otherwise resolve them before comparing.");
   }
   git("rev-parse", "--verify", "refs/remotes/github/main");
-  if (git("ls-tree", "-r", "--name-only", "refs/remotes/github/main", "--", "bitwarden_license").trim()) {
-    throw new Error("Public main contains the excluded bitwarden_license directory.");
-  }
   const paths = git("diff", "--name-only", "-z", "main", "refs/remotes/github/main")
     .split("\0")
     .filter(Boolean);

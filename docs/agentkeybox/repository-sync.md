@@ -1,6 +1,8 @@
 # CNB 与 GitHub 同步
 
-两个仓库的 `main` 历史互不相连，不能直接 merge、rebase、强制推送或把 CNB 历史推到 GitHub。CNB 私有仓库保留上游商业模块；GitHub 公开仓库不得包含 `bitwarden_license/`，也不得包含私有历史。
+两个仓库的 `main` 历史互不相连，不能直接 merge、rebase、强制推送或把 CNB 历史推到 GitHub。GitHub 公开仓库不得包含私有历史。
+
+上游商业模块 `bitwarden_license/`（Bitwarden License，仅限内部开发测试、禁止分发和生产使用）已从 CNB 仓库移除：AKB 对它的依赖闭包为空，移除后 typecheck、单元测试和构建均不受影响，需要时可从移除前的提交检出。两侧仓库现在都不含该目录，商业模块不再是两库之间的内容差异，也不再需要 CNB 单独保留全量树。
 
 ## 本机检出和方向
 

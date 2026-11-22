@@ -6,8 +6,6 @@ const config = require("../../libs/components/tailwind.config.base");
 // Add browser-specific paths here. Shared libs should go in tailwind.config.base.js instead
 const browserContent = [
   path.resolve(__dirname, "./src/**/*.{html,ts,mdx}"),
-  path.resolve(__dirname, "../../bitwarden_license/bit-browser/src/**/*.{html,ts,mdx}"),
-  path.resolve(__dirname, "../../bitwarden_license/bit-pam-components/src/**/*.{html,ts}"),
 ];
 
 config.content = [...config.content, ...browserContent];

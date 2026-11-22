@@ -5,7 +5,7 @@
 export const CliLicenseType = Object.freeze({
   /** Built from `apps/cli` (GPL). */
   Oss: "oss",
-  /** Built from `bitwarden_license/bit-cli` (Bitwarden License). */
+  /** Commercial CLI distribution (`bw-bit-*` release assets); not built from this repository. */
   Bit: "bit",
 } as const);
 export type CliLicenseType = (typeof CliLicenseType)[keyof typeof CliLicenseType];
