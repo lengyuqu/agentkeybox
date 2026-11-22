@@ -27,7 +27,8 @@
 | Linux，AKB 单元测试（167 项）                          | 全部通过，包括 `policy.spec`                                                                                                                                |
 | Linux，CNB 流水线（类型检查、AKB 单元测试、独立构建）  | 核实时（共 20 次运行）全部成功，包括每一次合并到 `main`                                                                                                     |
 | Windows，AKB 单元测试                                  | 除一项外通过：`policy.spec` 检查 POSIX 文件权限位，在 Windows 上必然失败，Linux 上通过                                                                      |
-| macOS                                                  | **没有运行过端到端。** 共用代码在 Windows 和 Linux 上做过端到端；Keychain 助手和 macOS 的锁屏判断这一轮没有验证                                             |
+| macOS，真实 Vaultwarden 端到端（30 项）                | 通过。移除商业模块后重跑，退出码 0，含 Keychain 助手、锁屏门控、空闲与总时长上限；运行期间锁屏会让检查停在 `SCREEN_LOCKED`，解锁后全绿 |
+| macOS 独立可执行文件（`dist:akb:mac-arm64`）          | 早前验证过；移除商业模块这一轮没有重跑                                                                                                                      |
 | 真实 Linux 机器、桌面环境                              | **没有验证。** Linux 的端到端是在容器里以 root 运行的，不是在装有桌面的 Linux 主机上，也没有用普通用户跑                                                    |
 | Windows 锁屏门控的端到端步骤（`AKB_TEST_SCREEN_LOCK`） | 通过：真实锁屏时拒绝读取，解锁后无需重新输入主密码即可同步和读取；见下方独立版验收记录                                                                    |
 | 打包出的 `akb.exe`（`dist:akb:win-x64`）               | 通过：独立版重跑 30 项端到端检查，退出码为 0；锁屏步骤在另一轮单独通过                                                                                    |
@@ -51,7 +52,8 @@
 - 仓库：<https://github.com/bitwarden/clients>
 - CLI 标签：`cli-v2026.11.0`
 - Commit：`28b247ac34877882aaef4faea082a9f3bb201114`
-- 采用 GPL 构建入口；上游 `bitwarden_license` 商业模块另有许可（仅限内部开发测试，禁止分发和生产使用），本仓库和 GitHub 公开仓库均不包含该目录，GitHub 侧也不包含私有仓库历史。保留上游许可证和版权声明；如需找回商业模块，可从移除前的提交（`ff94635f` 及更早）中检出。
+- 采用 GPL 构建入口。上游 `bitwarden_license` 商业模块（Bitwarden License v1.0，仅限内部开发测试、禁止分发和生产使用）已从本仓库移除，AKB 对它的依赖闭包为空；两个仓库现在都只含 GPL-3.0 代码。保留上游许可证和版权声明。
+- 商业模块源码不在本仓库的任何历史提交里。它只存在于 CNB 私有仓库移除前的历史中，公开仓库没有那段历史；需要时只能回到上游 `bitwarden/clients` 获取。
 
 ## 构建与使用
 

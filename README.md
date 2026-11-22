@@ -20,7 +20,7 @@ On Windows, run the build in a Visual Studio x64 developer shell so `cl.exe` is 
 
 Based on [Bitwarden clients](https://github.com/bitwarden/clients) CLI tag `cli-v2026.11.0`, commit `28b247ac34877882aaef4faea082a9f3bb201114`. The GPL build and modifications are provided under [GPL-3.0](LICENSE_GPL.txt); retain upstream copyright and license notices. Other third-party components may have their own licenses.
 
-This public source snapshot excludes Bitwarden's separately licensed `bitwarden_license` commercial modules and does not include the private repository's history. Commands requiring those modules are outside this distribution. Bitwarden names and logos belong to their respective owners; this project is not an official Bitwarden product.
+This repository contains only GPL-3.0 code. Bitwarden's separately licensed `bitwarden_license` commercial modules (Bitwarden License v1.0) are excluded, and the history of the private development repository is not included; commands that require those modules are outside this distribution. Bitwarden names and logos belong to their respective owners; this project is not an official Bitwarden product.
 
 ## Security reports
 
