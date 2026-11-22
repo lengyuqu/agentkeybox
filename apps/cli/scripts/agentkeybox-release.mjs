@@ -14,7 +14,7 @@ const helper = path.join(output, helperName);
 copyFileSync(path.join(app, "build-akb", helperName), helper);
 const licenses = path.join(output, "licenses");
 mkdirSync(licenses, { recursive: true });
-for (const name of ["LICENSE.txt", "LICENSE_GPL.txt"]) {
+for (const name of ["LICENSE.txt", "LICENSE_GPL.txt", "NOTICE"]) {
   copyFileSync(path.join(root, name), path.join(licenses, name));
 }
 const digest = createHash("sha256").update(readFileSync(executable)).digest("hex");

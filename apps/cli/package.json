@@ -15,7 +15,7 @@
     "type": "git",
     "url": "git+https://github.com/bitwarden/clients.git"
   },
-  "license": "SEE LICENSE IN LICENSE.txt",
+  "license": "GPL-3.0",
   "scripts": {
     "clean": "rimraf dist",
     "build:oss": "webpack",

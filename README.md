@@ -2,7 +2,7 @@
 
 AgentKeybox is an experimental Vaultwarden client for agents, built on Bitwarden's GPL client code. It can inject credentials into a child process and offers an MCP server designed not to return credential values directly. This is a development build, not a security guarantee or a production release.
 
-[中文使用与验收说明](AGENTKEYBOX.md) · [Upstream Bitwarden README](README.bitwarden.md)
+[简体中文](README.zh-CN.md) · [中文使用与验收说明](AGENTKEYBOX.md) · [Upstream Bitwarden README](README.bitwarden.md)
 
 ## Build
 
@@ -18,9 +18,9 @@ On Windows, run the build in a Visual Studio x64 developer shell so `cl.exe` is 
 
 ## Source and license
 
-Based on [Bitwarden clients](https://github.com/bitwarden/clients) CLI tag `cli-v2026.11.0`, commit `28b247ac34877882aaef4faea082a9f3bb201114`. The GPL build and modifications are provided under [GPL-3.0](LICENSE_GPL.txt); retain upstream copyright and license notices. Other third-party components may have their own licenses.
+AgentKeybox is licensed under the [GNU General Public License v3.0](LICENSE.txt). Based on [Bitwarden clients](https://github.com/bitwarden/clients) CLI tag `cli-v2026.11.0`, commit `28b247ac34877882aaef4faea082a9f3bb201114`; upstream copyright and license notices are retained. Other third-party components may have their own licenses. Full attribution and the list of excluded components are in [NOTICE](NOTICE).
 
-This repository contains only GPL-3.0 code. Bitwarden's separately licensed `bitwarden_license` commercial modules (Bitwarden License v1.0) are excluded, and the history of the private development repository is not included; commands that require those modules are outside this distribution. Bitwarden names and logos belong to their respective owners; this project is not an official Bitwarden product.
+This repository contains only GPL-3.0 code. Bitwarden's separately licensed `bitwarden_license` commercial modules (Bitwarden License v1.0) are not present in any commit; commands that require those modules are outside this distribution. Bitwarden names and logos belong to their respective owners; this project is not an official Bitwarden product.
 
 ## Security reports
 
