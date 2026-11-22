@@ -9,11 +9,10 @@ import { join } from "node:path";
 import ts from "typescript";
 
 const args = process.argv.slice(2);
-const commercial = args.includes("--commercial");
 const [oldVersion, newVersion] = args.filter((arg) => !arg.startsWith("--"));
 
 if (!oldVersion || !newVersion) {
-  console.error("usage: sdk-surface-diff.mjs <old-version> <new-version> [--commercial]");
+  console.error("usage: sdk-surface-diff.mjs <old-version> <new-version>");
   process.exit(2);
 }
 
@@ -27,7 +26,7 @@ for (const version of [oldVersion, newVersion]) {
   }
 }
 
-const pkg = commercial ? "@bitwarden/commercial-sdk-internal" : "@bitwarden/sdk-internal";
+const pkg = "@bitwarden/sdk-internal";
 const cache = join(process.env.RUNNER_TEMP ?? tmpdir(), "sdk-surface", pkg.replace(/\W/g, "-"));
 
 function fail(message) {
