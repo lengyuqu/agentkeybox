@@ -1,0 +1,9 @@
+{
+  "name": "agentkeybox",
+  "version": "0.1.0-dev",
+  "license": "GPL-3.0",
+  "pkg": {
+    "scripts": ["build-akb/*.js"],
+    "assets": ["build-akb/*.wasm", "build-akb/locales/**/*"]
+  }
+}

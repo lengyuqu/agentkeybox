@@ -1,0 +1,47 @@
+# AgentKeybox CI for CNB. Replaces the upstream Bitwarden GitHub Actions workflows,
+# which are not used by this repository.
+#
+# Scope: type-check, AgentKeybox unit tests and the standalone AKB build on Linux.
+# The real-Vaultwarden e2e (apps/cli/scripts/agentkeybox-e2e.mjs) needs Docker,
+# OpenSSL and, on Windows/macOS, a desktop session, so it stays a manual step.
+# `$` is the documented catch-all for branches that are not named explicitly.
+
+$:
+  push:
+    - name: akb-ci
+      docker:
+        image: node:24
+        volumes:
+          - /root/.npm:copy-on-write
+      runner:
+        cpus: 8
+      stages:
+        - name: install
+          script: npm ci --ignore-scripts --no-audit --no-fund
+        - name: typecheck
+          script: npx tsc --noEmit -p apps/cli/tsconfig.json
+        - name: unit-tests
+          script: npm test --workspace @bitwarden/cli -- --runInBand src/agentkeybox
+        - name: build
+          script: |
+            npm run build:akb --workspace @bitwarden/cli
+            node apps/cli/build-akb/akb.js --version
+  pull_request:
+    - name: akb-ci
+      docker:
+        image: node:24
+        volumes:
+          - /root/.npm:copy-on-write-read-only
+      runner:
+        cpus: 8
+      stages:
+        - name: install
+          script: npm ci --ignore-scripts --no-audit --no-fund
+        - name: typecheck
+          script: npx tsc --noEmit -p apps/cli/tsconfig.json
+        - name: unit-tests
+          script: npm test --workspace @bitwarden/cli -- --runInBand src/agentkeybox
+        - name: build
+          script: |
+            npm run build:akb --workspace @bitwarden/cli
+            node apps/cli/build-akb/akb.js --version
