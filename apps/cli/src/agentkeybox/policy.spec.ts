@@ -23,7 +23,10 @@ describe("session policy", () => {
     try {
       savePolicy(dir, { idle_ms: null, max_ms: null });
       expect(loadPolicy(dir)).toEqual({ idle_ms: null, max_ms: null });
-      expect(statSync(join(dir, "session-policy.json")).mode & 0o777).toBe(0o600);
+      // Windows reports POSIX mode 0666; private access there comes from the profile DACL.
+      if (process.platform !== "win32") {
+        expect(statSync(join(dir, "session-policy.json")).mode & 0o777).toBe(0o600);
+      }
       expect(readFileSync(join(dir, "session-policy.json"), "utf8")).toContain("null");
     } finally {
       rmSync(dir, { recursive: true, force: true });

@@ -108,7 +108,8 @@ module.exports.buildConfig = function buildConfig(params) {
     externals: [
       nodeExternals({
         modulesDir: params.externalsModulesDir,
-        allowlist: [/@bitwarden/, /^https-proxy-agent$/, /^agent-base$/],
+        // Pure-ESM proxy packages must be bundled: pkg cannot snapshot exports-only entries.
+        allowlist: [/@bitwarden/, /^https-proxy-agent$/, /^agent-base$/, /^proxy-agent-negotiate$/],
       }),
     ],
     experiments: {

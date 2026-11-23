@@ -22,16 +22,17 @@
 
 | 平台和环节                                             | 状态                                                                                                                                                        |
 | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Windows，真实 Vaultwarden 端到端（30 项）              | 通过。用 `node apps/cli/build-akb/akb.js` 运行，见“验证”                                                                                                    |
+| Windows，真实 Vaultwarden 端到端（30 项）              | 通过。移除商业模块并修复代理打包缺陷后于 2026-11-23 重跑，用 `node apps/cli/build-akb/akb.js` 运行，退出码 0，见“验证”                                      |
 | Linux，后台服务模式，真实 Vaultwarden 端到端（31 项）  | 通过。在 Docker 里的 `node:24`（Debian、x86_64，以 root 运行）中运行，宿主是 WSL2 上的 Docker Desktop，见“验证”。含 Unix 套接字服务、重启、空闲和总时长超时 |
 | Linux，AKB 单元测试（167 项）                          | 全部通过，包括 `policy.spec`                                                                                                                                |
 | Linux，CNB 流水线（类型检查、AKB 单元测试、独立构建）  | 核实时（共 20 次运行）全部成功，包括每一次合并到 `main`                                                                                                     |
-| Windows，AKB 单元测试                                  | 除一项外通过：`policy.spec` 检查 POSIX 文件权限位，在 Windows 上必然失败，Linux 上通过                                                                      |
-| macOS，真实 Vaultwarden 端到端（30 项）                | 通过。移除商业模块后重跑，退出码 0，含 Keychain 助手、锁屏门控、空闲与总时长上限；运行期间锁屏会让检查停在 `SCREEN_LOCKED`，解锁后全绿 |
-| macOS 独立可执行文件（`dist:akb:mac-arm64`）          | 早前验证过；移除商业模块这一轮没有重跑                                                                                                                      |
+| Windows，AKB 单元测试（167 项）                        | 全部通过。`policy.spec` 的 POSIX 权限位断言改为仅在 POSIX 平台执行（Windows 报告 0666，私有访问由 profile 目录的 DACL 保证）                                |
+| macOS，真实 Vaultwarden 端到端（30 项）                | 通过。移除商业模块后重跑，退出码 0，含 Keychain 助手、锁屏门控、空闲与总时长上限；运行期间锁屏会让检查停在 `SCREEN_LOCKED`，解锁后全绿                      |
+| macOS 独立可执行文件（`dist:akb:mac-arm64`）           | 早前验证过；移除商业模块这一轮没有重跑                                                                                                                      |
 | 真实 Linux 机器、桌面环境                              | **没有验证。** Linux 的端到端是在容器里以 root 运行的，不是在装有桌面的 Linux 主机上，也没有用普通用户跑                                                    |
-| Windows 锁屏门控的端到端步骤（`AKB_TEST_SCREEN_LOCK`） | 通过：真实锁屏时拒绝读取，解锁后无需重新输入主密码即可同步和读取；见下方独立版验收记录                                                                    |
-| 打包出的 `akb.exe`（`dist:akb:win-x64`）               | 通过：独立版重跑 30 项端到端检查，退出码为 0；锁屏步骤在另一轮单独通过                                                                                    |
+| Windows 锁屏门控的端到端步骤（`AKB_TEST_SCREEN_LOCK`） | 2026-11-22 实测通过：真实锁屏时拒绝读取，解锁后无需重新输入主密码即可同步和读取。2026-11-23 在 RDP 会话中重试未成功（见“验证”），沿用前次记录               |
+| 打包出的 `akb.exe`（`dist:akb:win-x64`）               | 通过：2026-11-23 用修复后的构建重跑 30 项端到端检查，退出码 0（带空格路径、PATH 排除 Node/npm/bw）；锁屏步骤见上一行                                        |
+| Windows 普通权限（标准用户 / UAC 开启）环境            | **没有验证。** 验证机是内置 Administrator 账户且 UAC 关闭，所有进程都持完整令牌；私有 TEMP 只满足目录检查，不等同于标准用户环境                             |
 
 ### 没有验证过的
 
@@ -264,7 +265,7 @@ node apps/cli/scripts/agentkeybox-e2e.mjs
 
 单元测试和类型检查也是 CNB 流水线（`.cnb.yml`）在每次推送和合并请求里跑的内容，另外还有一次 `build:akb` 构建。流水线不跑端到端，因为它需要 Docker 和 OpenSSL，在 Windows 和 macOS 上还需要交互桌面，所以端到端是手动步骤。核实时的 20 次流水线运行全部成功；之后的运行请直接看 CNB 上的结果。
 
-在 Windows 上 `policy.spec` 的一项会失败：它检查 POSIX 文件权限位（期望 0600，Windows 报告 0666），与 AKB 的功能无关，在 Linux 上通过。
+`policy.spec` 的 POSIX 文件权限位断言（期望 0600）只在 POSIX 平台执行：Windows 报告 0666，私有访问由 profile 目录的 DACL 检查保证，该断言在 Windows 上跳过。2026-11-23 在 Windows 上 167 项单元测试全部通过，类型检查无错误。
 
 集成脚本启动仅绑定 loopback 的临时 Vaultwarden Docker 容器，使用固定镜像 digest、随机生成账户和凭据，并在结束后清理测试目录与容器。它不会使用用户已有仓库。测试中的独立加密代码只生成测试夹具，不进入产品构建。目前共 30 项检查，覆盖登录和会话、读取、`run`、按网址查找、TOTP、新建与修改、删除与恢复、MCP、通行密钥的签名与新建、审计日志、会话时长限制，以及断网时不返回缓存凭据。
 
@@ -279,6 +280,10 @@ node apps/cli/scripts/agentkeybox-e2e.mjs
 2026-11-22 Windows x64 独立版验收：重新执行 `dist:akb:win-x64`，测试将 `akb.exe` 和助手复制到带空格的路径，产品进程的 PATH 排除 Node、npm 和 bw，并连接临时真实 Vaultwarden。第一轮实际锁屏时验证了拒绝读取、解锁后恢复同步与读取；这轮共通过 30 项，但最后登出后的状态检查返回 `locked`，预期为 `unauthenticated`，所以整轮没有通过。该次未记录状态查询时的桌面状态，原因未确定。
 
 随后在桌面解锁状态下完整重跑（锁屏步骤关闭，因为已在第一轮实测），30 项通过、退出码 0。断网读取返回 `SYNC_FAILED`，登出响应及紧随其后的状态查询均为 `unauthenticated`、`screen_state: unlocked`，重复登出通过。另一次聚焦断网、登出和重复登出的测试也得到相同结果；第一次异常未复现，不能断言其原因。本次环境为提升权限的管理员会话，测试使用限制访问的临时目录，并将测试进程的默认文件所有者设为当前用户，以满足目录检查；它不代替普通权限用户环境的验收。
+
+2026-11-23 Windows 重跑（移除商业模块后）：源码构建与独立版各 30 项通过、退出码 0，单元测试 167 项全部通过，类型检查无错误。过程中发现并修复一个独立版专属缺陷：配置 `http_proxy`/`https_proxy` 时登录崩溃（`ReferenceError: Cannot access 'HttpsProxyAgent' before initialization`）。原因是 `https-proxy-agent` 9.1.0 的新依赖 `proxy-agent-negotiate` 为纯 ESM（只有 `exports`、没有 `main`），不在 webpack 的打包 allowlist 里，pkg 无法把它纳入快照；源码构建在运行时从 `node_modules` 解析，所以不受影响。已将它加入 `apps/cli/webpack.base.js` 的 allowlist，并在带代理变量的环境下用临时真实 Vaultwarden 复现、验证修复。2026-11-22 的验收终端没有代理变量，因此当时没有暴露这条路径。
+
+本轮环境说明：验证机是内置 Administrator 账户且 UAC 关闭（`EnableLUA=0`），不存在当前用户的普通权限令牌，普通权限环境的验收仍待在有标准用户或开启 UAC 的机器上做。系统 `Temp` 的 ACL 被其他沙箱工具加入了额外的组（Modify 权限），AKB 的 `UNSAFE_DIRECTORY` 检查正确地拒绝了它；测试改用当前用户所有、DACL 干净的私有目录作为 `TEMP`。OpenSSL 用最小配置文件绕开本机配置里的 `keyid:nonss` 笔误。这两项都只影响测试环境，不改变产品检查。锁屏步骤本轮重试失败：验证机通过 RDP 接入，Win+L 锁定的是本地客户端而不是远程会话，脚本在 180 秒内没有观察到锁屏状态；这是测试环境限制，不是产品缺陷，锁屏门控沿用 2026-11-22 的实测记录。在 RDP 中重跑需要用 Ctrl+Alt+End → 锁定，或 `tsdiscon` 断开后重连。
 
 在 Linux 上运行端到端时，如果脚本本身在容器里（没有现成的 Linux 主机时，这是在 Windows 上借 Docker Desktop 的办法），有两处和直接运行不同，都是实际踩过的：
 
