@@ -4,6 +4,23 @@
 
 [English README](README.md) · [完整使用与验收说明](AGENTKEYBOX.md) · [上游 Bitwarden README](README.bitwarden.md)
 
+## 安装（预编译二进制）
+
+**macOS Apple Silicon（arm64），通过 Homebrew：**
+
+```sh
+brew install lengyuqu/agentkeybox/agentkeybox
+```
+
+**Windows x64，通过 Scoop：**
+
+```powershell
+scoop bucket add agentkeybox https://github.com/lengyuqu/scoop-agentkeybox
+scoop install agentkeybox
+```
+
+两者都会把 `akb` 命令和对应平台的助手装到同一目录，运行时不需要 Node.js、npm 或 `bw`。校验和见[发行说明](https://github.com/lengyuqu/agentkeybox/releases/latest)。
+
 ## 构建
 
 需要 Node.js 24.17 或更高版本、npm 11。在仓库根目录运行：

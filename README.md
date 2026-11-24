@@ -4,6 +4,23 @@ AgentKeybox is an experimental Vaultwarden client for agents, built on Bitwarden
 
 [简体中文](README.zh-CN.md) · [中文使用与验收说明](AGENTKEYBOX.md) · [Upstream Bitwarden README](README.bitwarden.md)
 
+## Install (prebuilt binaries)
+
+**macOS Apple Silicon (arm64), via Homebrew:**
+
+```sh
+brew install lengyuqu/agentkeybox/agentkeybox
+```
+
+**Windows x64, via Scoop:**
+
+```powershell
+scoop bucket add agentkeybox https://github.com/lengyuqu/scoop-agentkeybox
+scoop install agentkeybox
+```
+
+Both install the `akb` CLI and its platform helper in one directory; no Node.js, npm or `bw` is needed at runtime. Checksums are published in the [release notes](https://github.com/lengyuqu/agentkeybox/releases/latest).
+
 ## Build
 
 Requires Node.js 24.17 or later and npm 11. From the repository root:
