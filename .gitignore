@@ -68,3 +68,6 @@ apps/**/config/local.json
 .debug/**
 !.debug/**/
 !.debug/**/.gitkeep
+
+# Local agent workspace state (not part of the published source)
+.workbuddy/
