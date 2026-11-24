@@ -15,7 +15,7 @@ const windows = process.platform === "win32";
 
 const program = new Command("akb")
   .description("AgentKeybox: source-based Bitwarden client for Vaultwarden (MVP)")
-  .version("0.1.0-dev (Bitwarden cli-v2026.11.0)")
+  .version("0.1.1 (Bitwarden cli-v2026.11.0)")
   .option("--profile <name>", "Isolated vault profile", "default")
   .option("--json", "Machine-readable output; never prompt")
   .option("--no-input", "Never prompt")
@@ -217,7 +217,7 @@ program
     await serveMcp(process.stdin, process.stdout, {
       perform,
       readOnly: options.readOnly === true,
-      version: "0.1.0-dev",
+      version: "0.1.1",
       // Standard output belongs to the protocol, and a service has no input to pass on.
       run: (command, specs, sinks, timeoutMs) =>
         runCommand(perform, audit, () => {}, command, specs, sinks, {

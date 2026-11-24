@@ -1,0 +1,129 @@
+name: AgentKeybox Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Derive version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Tag $GITHUB_REF_NAME is not a stable version (vX.Y.Z); skipping." >&2
+            echo "valid=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "valid=true" >> "$GITHUB_OUTPUT"
+      - name: Create release if missing
+        if: steps.version.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --title "AgentKeybox ${GITHUB_REF_NAME#v}" --generate-notes
+
+  build-windows:
+    needs: prepare
+    if: needs.prepare.outputs.version != ''
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Stamp version
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $main = 'apps/cli/src/agentkeybox/main.ts'
+          (Get-Content $main -Raw) -replace '0\.1\.1', $VERSION | Set-Content $main -NoNewline
+          $pkg = 'apps/cli/package.agentkeybox.json'
+          (Get-Content $pkg -Raw) -replace '"version": "0\.1\.1"', ('"version": "' + $VERSION + '"') | Set-Content $pkg -NoNewline
+      - name: Build and package
+        run: npm run dist:akb:win-x64 --workspace @bitwarden/cli
+      - name: Archive
+        shell: pwsh
+        run: |
+          Compress-Archive -Path 'apps/cli/dist/agentkeybox/windows-x64/*' -DestinationPath 'akb-windows-x64.zip' -Force
+          (Get-FileHash 'akb-windows-x64.zip' -Algorithm SHA256).Hash.ToLower()
+      - name: Upload release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload $env:GITHUB_REF_NAME akb-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
+
+  build-macos:
+    needs: prepare
+    if: needs.prepare.outputs.version != ''
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Stamp version
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          sed -i '' "s/0\.1\.1/$VERSION/g" apps/cli/src/agentkeybox/main.ts
+          sed -i '' "s/\"version\": \"0\.1\.1\"/\"version\": \"$VERSION\"/" apps/cli/package.agentkeybox.json
+      - name: Build and package
+        run: npm run dist:akb:mac-arm64 --workspace @bitwarden/cli
+      - name: Archive
+        run: |
+          tar czf akb-macos-arm64.tar.gz -C apps/cli/dist/agentkeybox/macos-arm64 .
+          shasum -a 256 akb-macos-arm64.tar.gz
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "$GITHUB_REF_NAME" akb-macos-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+
+  finalize:
+    needs: [prepare, build-windows, build-macos]
+    if: needs.prepare.outputs.version != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute asset checksums and update release notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'akb-*' --dir assets --clobber
+          WIN_HASH=$(sha256sum assets/akb-windows-x64.zip | cut -d' ' -f1)
+          MAC_HASH=$(sha256sum assets/akb-macos-arm64.tar.gz | cut -d' ' -f1)
+          {
+            echo "## Binary assets"
+            echo
+            echo "| Asset | Platform | SHA-256 |"
+            echo "| --- | --- | --- |"
+            echo "| \`akb-windows-x64.zip\` | Windows x64 | \`$WIN_HASH\` |"
+            echo "| \`akb-macos-arm64.tar.gz\` | macOS Apple Silicon (arm64) | \`$MAC_HASH\` |"
+            echo
+            echo "Source build, not a security guarantee. See [AGENTKEYBOX.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/AGENTKEYBOX.md) for validation status and known unverified areas."
+          } > notes.md
+          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md

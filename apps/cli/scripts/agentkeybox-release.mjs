@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const app = fileURLToPath(new URL("../", import.meta.url));
 const root = path.resolve(app, "../..");
+const { version } = JSON.parse(readFileSync(path.join(app, "package.agentkeybox.json"), "utf8"));
 const windows = process.argv[2] === "windows-x64";
 const output = path.join(app, "dist/agentkeybox", windows ? "windows-x64" : "macos-arm64");
 const cliName = windows ? "akb.exe" : "akb";
@@ -26,7 +27,7 @@ writeFileSync(
 const usage = windows ? `.\\${cliName}` : `./${cliName}`;
 writeFileSync(
   path.join(output, "README.txt"),
-  `AgentKeybox 0.1.0-dev — ${windows ? "Windows x64" : "macOS Apple Silicon (arm64)"}
+  `AgentKeybox ${version} — ${windows ? "Windows x64" : "macOS Apple Silicon (arm64)"}
 
 Keep ${cliName} and ${helperName} in the same directory.
 The embedded Node 22 runtime needs no separately installed Node.js, npm or bw.
