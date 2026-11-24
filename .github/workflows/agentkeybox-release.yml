@@ -4,9 +4,18 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to (re)build, e.g. v0.1.1'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 jobs:
   prepare:
@@ -18,9 +27,9 @@ jobs:
       - name: Derive version from tag
         id: version
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${RELEASE_TAG#v}"
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Tag $GITHUB_REF_NAME is not a stable version (vX.Y.Z); skipping." >&2
+            echo "Tag $RELEASE_TAG is not a stable version (vX.Y.Z); skipping." >&2
             echo "valid=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -31,9 +40,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
-              --title "AgentKeybox ${GITHUB_REF_NAME#v}" --generate-notes
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "AgentKeybox ${RELEASE_TAG#v}" --generate-notes
 
   build-windows:
     needs: prepare
@@ -70,7 +79,7 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload $env:GITHUB_REF_NAME akb-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
+        run: gh release upload $env:RELEASE_TAG akb-windows-x64.zip --repo $env:GITHUB_REPOSITORY --clobber
 
   build-macos:
     needs: prepare
@@ -99,7 +108,7 @@ jobs:
       - name: Upload release asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" akb-macos-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
+        run: gh release upload "$RELEASE_TAG" akb-macos-arm64.tar.gz --repo "$GITHUB_REPOSITORY" --clobber
 
   finalize:
     needs: [prepare, build-windows, build-macos]
@@ -112,7 +121,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --pattern 'akb-*' --dir assets --clobber
           WIN_HASH=$(sha256sum assets/akb-windows-x64.zip | cut -d' ' -f1)
           MAC_HASH=$(sha256sum assets/akb-macos-arm64.tar.gz | cut -d' ' -f1)
@@ -124,6 +133,6 @@ jobs:
             echo "| \`akb-windows-x64.zip\` | Windows x64 | \`$WIN_HASH\` |"
             echo "| \`akb-macos-arm64.tar.gz\` | macOS Apple Silicon (arm64) | \`$MAC_HASH\` |"
             echo
-            echo "Source build, not a security guarantee. See [AGENTKEYBOX.md](https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_REF_NAME/AGENTKEYBOX.md) for validation status and known unverified areas."
+            echo "Source build, not a security guarantee. See [AGENTKEYBOX.md](https://github.com/$GITHUB_REPOSITORY/blob/$RELEASE_TAG/AGENTKEYBOX.md) for validation status and known unverified areas."
           } > notes.md
-          gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --notes-file notes.md
