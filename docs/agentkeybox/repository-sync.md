@@ -12,6 +12,8 @@ AKB 对该商业模块的依赖闭包为空，正常开发不需要它。归档�
 
 公开仓库不得包含 `bitwarden_license/` 或任何 Bitwarden License v1.0 内容。两侧历史已同源，一旦提交，该内容会同时进入两个远程仓库的历史，无法通过删除文件撤回。提交前检查 `git status` 与 `git diff --cached`，不要从归档仓库复制目录。
 
+标签是另一条独立路径：指向旧历史的标签会把整条祖先链一并带回。归档仓库的上游版本标签（`browser-`、`cli-`、`desktop-`、`web-` 前缀）全部指向 `91214c3b`，该提交的树里有 796 个 `bitwarden_license/` 文件。这些标签已从当前检出删除，仅保留 `v0.1.0-dev`。**不要使用 `git push --tags`**，只推送明确写出的标签名；新增标签前用 `git merge-base --is-ancestor <tag> main` 确认它落在当前历史内。
+
 ## 日常同步
 
 1. 获取两侧远程引用：`git fetch origin --prune` 与 `git fetch github --prune`。
