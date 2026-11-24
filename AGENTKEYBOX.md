@@ -8,15 +8,16 @@
 
 ### 已实现
 
-| 方面       | 内容                                                                                              |
-| ---------- | ------------------------------------------------------------------------------------------------- |
-| 发现       | `account list`（`--search`、`--url`、`--trashed`）、`account show`，只返回元数据                  |
-| 使用凭据   | `run` 把值注入命令环境并打码；`credential get`（给人手动用）；TOTP 验证码                         |
-| 修改       | `item create`、`item set`、`item delete`（进回收站）、`item restore`；值只走标准输入或由 AKB 生成 |
-| 通行密钥   | `passkey assert`（登录）、`passkey create`（为网站新建），私钥不离开保险库                        |
-| agent 接入 | `akb mcp`：没有任何工具返回凭据的值                                                               |
-| 会话       | 锁屏门控、`session policy` 的空闲和总时长上限、系统凭据存储                                       |
-| 审计       | `audit.log` 记录谁用了哪个引用，不含值                                                            |
+| 方面       | 内容                                                                                                           |
+| ---------- | -------------------------------------------------------------------------------------------------------------- |
+| 发现       | `account list`（`--search`、`--url`、`--trashed`）、`account show`，只返回元数据                               |
+| 使用凭据   | `run` 把值注入命令环境并打码；`credential get`（给人手动用）；TOTP 验证码                                      |
+| 修改       | `item create`、`item set`、`item delete`（进回收站）、`item restore`；值只走标准输入或由 AKB 生成              |
+| SSH 密钥   | `item create --type ssh`（生成 Ed25519 或导入私钥）、`item set --field private_key`（轮换）；读取与 `run` 注入 |
+| 通行密钥   | `passkey assert`（登录）、`passkey create`（为网站新建），私钥不离开保险库                                     |
+| agent 接入 | `akb mcp`：没有任何工具返回凭据的值                                                                            |
+| 会话       | 锁屏门控、`session policy` 的空闲和总时长上限、系统凭据存储                                                    |
+| 审计       | `audit.log` 记录谁用了哪个引用，不含值                                                                         |
 
 ### 验证情况
 
@@ -34,6 +35,7 @@
 | 打包出的 `akb.exe`（`dist:akb:win-x64`）               | 通过：2026-11-23 用修复后的构建重跑 30 项端到端检查，退出码 0（带空格路径、PATH 排除 Node/npm/bw）；锁屏步骤见上一行                                        |
 | Windows 普通权限（标准用户 / UAC 开启）环境            | **没有验证。** 验证机是内置 Administrator 账户且 UAC 关闭，所有进程都持完整令牌；私有 TEMP 只满足目录检查，不等同于标准用户环境                             |
 | Windows，代理路径（`http_proxy`/`https_proxy`）        | 通过。2026-11-24 用独立进程的记录代理实测 4 轮登录（源码构建与打包 exe），流量全部经代理隧道，未绕过，见“验证”                                              |
+| Windows，SSH 密钥写入（生成、导入、轮换、注入）        | 通过。2026-11-24 源码构建与打包 exe 各 33 项端到端检查全过，退出码 0，见“验证”。Linux 与 macOS 的记录早于 SSH 检查，未含这 3 项                             |
 
 ### 没有验证过的
 
@@ -113,7 +115,7 @@ node apps/cli/build-akb/akb.js --help
 
 ## 新增和修改条目
 
-写入只处理登录条目，且 AKB 不回显任何写入的值：生成的密码只存入保险库，之后用 `run` 注入或显式 `credential get` 读取。
+写入处理登录条目和 SSH 密钥条目，且 AKB 不回显任何写入的值：生成的密码或私钥只存入保险库，之后用 `run` 注入或显式 `credential get` 读取。
 
 ```bash
 # 新增：密码由 AKB 生成并保存，不显示
@@ -130,6 +132,15 @@ printf '%s' "$NEW_TOKEN" | ./akb --profile home item set ref:github/ci --field p
 # 设置 TOTP 种子、备注、自定义字段（新建的自定义字段为隐藏类型）
 printf '%s' "$SEED" | ./akb --profile home item set ref:github/ci --field totp --stdin
 
+# SSH 密钥：生成 Ed25519 密钥对，或从标准输入导入私钥
+./akb --profile home item create --type ssh --name Deploy --ref ssh/deploy --generate-key
+ssh-keygen -t ed25519 -N "" -f /tmp/k -q && ./akb --profile home item create --type ssh \
+  --name Deploy --ref ssh/deploy2 --private-key-stdin < /tmp/k
+
+# SSH 轮换：生成新密钥对，或导入新私钥（公钥和指纹随之更新）
+./akb --profile home item set ref:ssh/deploy --field private_key --generate
+./akb --profile home item set ref:ssh/deploy --field private_key --stdin < /tmp/new_key
+
 # 删除：移到保险库的回收站，不是彻底销毁
 ./akb --profile home item delete ref:github/ci
 
@@ -145,7 +156,8 @@ printf '%s' "$SEED" | ./akb --profile home item set ref:github/ci --field totp -
 - 命令不要求二次确认，因为 agent 可以自行加确认参数，那只是摆设。可恢复性才是这里的保护。
 
 - `--ref` 可带或不带 `ref:` 前缀，不得与现有条目重复，否则返回 `REF_EXISTS`。`--url` 可重复，裸域名按 `https://` 处理。
-- `set` 可修改 `password`、`username`、`notes`、`totp` 和 `custom:<字段名>`，一次一个字段，其他部分保持原样。`agentkeybox.` 开头的自定义字段由 AKB 管理，不能修改。`--generate` 只用于密码，长度 8 到 128，默认 24。
+- `set` 可修改 `password`、`username`、`notes`、`totp`、`private_key` 和 `custom:<字段名>`，一次一个字段，其他部分保持原样。`agentkeybox.` 开头的自定义字段由 AKB 管理，不能修改。`--generate` 用于密码（长度 8 到 128，默认 24）或 `private_key`（生成 Ed25519 密钥对）。
+- SSH 密钥条目：导入接受未加密的 OpenSSH 或 PKCS8 私钥（ed25519 或 RSA），由上游 SDK 解析并派生公钥和 SHA256 指纹；加密私钥、无法解析或不支持的类型返回 `INVALID_SSH_KEY`，错误不回显输入。`private_key` 只能设在 SSH 密钥条目上（其他类型返回 `UNSUPPORTED_FIELD`），一次替换整个密钥对。`public_key` 和指纹不可单独修改。MCP 的 `akb_create`（`type: ssh`）和 `akb_rotate`（`field: private_key`）只支持生成，不支持导入——导入的值会经过 agent 的上下文，违反 AKB 的原则。
 - 值只通过标准输入传入，不接受命令行参数，因此不会出现在命令历史或 agent 的对话记录里。单个值上限 64 KiB，末尾一个换行会被去掉。
 - TOTP 种子保存前先检查格式：base32 密钥、`otpauth://totp/` 地址或 `steam://` 密钥，其他文本返回 `INVALID_TOTP`。上游 SDK 对几乎任何文本都能“生成”验证码，所以不能靠试生成来判断种子是否有效；格式正确的种子仍可能是错的，需要用 `credential get --field totp` 对照确认。
 - 写入前先在线同步，并通过上游 SDK 保存，不在 AKB 里新增加密逻辑。服务端报告条目已被他处修改时，会在最新数据上重试一次；仍失败返回 `WRITE_CONFLICT`，其他拒绝返回 `WRITE_FAILED`。错误不透传服务端内容。
@@ -221,8 +233,8 @@ printf '%s' "$SEED" | ./akb --profile home item set ref:github/ci --field totp -
 | `akb_run`            | 用指定登录的值设置环境变量并运行命令，输出里的值被打码。这是使用凭据的唯一途径 |
 | `akb_passkey_assert` | 用登录里的通行密钥对网站的挑战签名，返回签好的响应，私钥不出保险库             |
 | `akb_passkey_create` | 为网站在已有登录里新建通行密钥，只返回公开内容；已有通行密钥时不覆盖           |
-| `akb_create`         | 新建登录，密码只能由 AKB 生成                                                  |
-| `akb_rotate`         | 把密码换成新生成的                                                             |
+| `akb_create`         | 新建登录（密码只能由 AKB 生成）或 SSH 密钥条目（`type: ssh`，生成 Ed25519）    |
+| `akb_rotate`         | 把密码或 SSH 密钥对（`field: private_key`）换成新生成的                        |
 | `akb_restore`        | 把回收站里的登录恢复回来                                                       |
 | `akb_delete`         | 移到回收站                                                                     |
 
@@ -268,7 +280,7 @@ node apps/cli/scripts/agentkeybox-e2e.mjs
 
 `policy.spec` 的 POSIX 文件权限位断言（期望 0600）只在 POSIX 平台执行：Windows 报告 0666，私有访问由 profile 目录的 DACL 检查保证，该断言在 Windows 上跳过。2026-11-23 在 Windows 上 167 项单元测试全部通过，类型检查无错误。
 
-集成脚本启动仅绑定 loopback 的临时 Vaultwarden Docker 容器，使用固定镜像 digest、随机生成账户和凭据，并在结束后清理测试目录与容器。它不会使用用户已有仓库。测试中的独立加密代码只生成测试夹具，不进入产品构建。目前共 30 项检查，覆盖登录和会话、读取、`run`、按网址查找、TOTP、新建与修改、删除与恢复、MCP、通行密钥的签名与新建、审计日志、会话时长限制，以及断网时不返回缓存凭据。
+集成脚本启动仅绑定 loopback 的临时 Vaultwarden Docker 容器，使用固定镜像 digest、随机生成账户和凭据，并在结束后清理测试目录与容器。它不会使用用户已有仓库。测试中的独立加密代码只生成测试夹具，不进入产品构建。目前共 33 项检查，覆盖登录和会话、读取、`run`、按网址查找、TOTP、新建与修改、SSH 密钥的生成与导入及轮换、删除与恢复、MCP、通行密钥的签名与新建、审计日志、会话时长限制，以及断网时不返回缓存凭据。
 
 在 Windows 上运行端到端的前提，都是实际踩过的：
 
@@ -285,6 +297,8 @@ node apps/cli/scripts/agentkeybox-e2e.mjs
 2026-11-23 Windows 重跑（移除商业模块后）：源码构建与独立版各 30 项通过、退出码 0，单元测试 167 项全部通过，类型检查无错误。过程中发现并修复一个独立版专属缺陷：配置 `http_proxy`/`https_proxy` 时登录崩溃（`ReferenceError: Cannot access 'HttpsProxyAgent' before initialization`）。原因是 `https-proxy-agent` 9.1.0 的新依赖 `proxy-agent-negotiate` 为纯 ESM（只有 `exports`、没有 `main`），不在 webpack 的打包 allowlist 里，pkg 无法把它纳入快照；源码构建在运行时从 `node_modules` 解析，所以不受影响。已将它加入 `apps/cli/webpack.base.js` 的 allowlist，并在带代理变量的环境下用临时真实 Vaultwarden 复现、验证修复。2026-11-22 的验收终端没有代理变量，因此当时没有暴露这条路径。
 
 2026-11-24 代理路径复核（两仓库历史同源后）：用独立进程里记录 CONNECT 的代理加临时真实 Vaultwarden，跑了 4 轮登录——源码构建（node26，`NODE_USE_ENV_PROXY` 关/开各一轮）、打包 exe（node22）、exe 加 `NO_PROXY=127.0.0.1,localhost`——全部成功，代理共记录 24 个 CONNECT，目标全部是 vault 地址，确认流量没有绕过代理。机制上，`node-api.service.ts` 把全局 fetch 替换为 node-fetch 2.7.0，它会读取 `request.agent` 上的 `HttpsProxyAgent`，因此“原生 fetch 忽略 agent、代理被绕过”的怀疑不成立。一个已知限制：这条 agent 路径不读 `NO_PROXY`，回环地址也会走代理（与上游行为一致，代理能正确隧道回环流量，不影响功能）。测试方法上有一个实际踩过的坑：记录代理必须跑在独立进程里，否则编排脚本的 spawnSync 会阻塞它的事件循环，CONNECT 无人应答，所有轮次都会假性挂起。
+
+2026-11-24 SSH 密钥写入支持：`item create --type ssh` 与 `item set --field private_key` 新增 SSH 密钥条目（上游 `CipherType.SshKey`）的写入。生成用上游 SDK 的 `generate_ssh_key`（Ed25519），导入用 `import_ssh_key`（未加密的 OpenSSH 或 PKCS8 私钥，ed25519 或 RSA），公钥和 SHA256 指纹由 SDK 派生。私钥与密码同规则：只走标准输入或由 AKB 生成，不回显；MCP 的 `akb_create`（`type: ssh`）和 `akb_rotate`（`field: private_key`）只支持生成，导入不开放给 MCP，因为那会让值经过 agent 的上下文。单元测试由 167 项增至 176 项全部通过，类型检查无错误；源码构建与独立版各 33 项端到端检查通过、退出码 0，新增的 3 项覆盖生成与导入不打印私钥、轮换与类型拒绝、`run` 注入多行私钥并整体打码，审计日志的“不含值”检查也加入了私钥。SDK 的 wasm SSH API 在 pkg 独立版里可用，无需打包改动。Linux 与 macOS 的端到端记录早于这 3 项检查，未重跑。
 
 本轮环境说明：验证机是内置 Administrator 账户且 UAC 关闭（`EnableLUA=0`），不存在当前用户的普通权限令牌，普通权限环境的验收仍待在有标准用户或开启 UAC 的机器上做。系统 `Temp` 的 ACL 被其他沙箱工具加入了额外的组（Modify 权限），AKB 的 `UNSAFE_DIRECTORY` 检查正确地拒绝了它；测试改用当前用户所有、DACL 干净的私有目录作为 `TEMP`。OpenSSL 用最小配置文件绕开本机配置里的 `keyid:nonss` 笔误。这两项都只影响测试环境，不改变产品检查。锁屏步骤本轮重试失败：验证机通过 RDP 接入，Win+L 锁定的是本地客户端而不是远程会话，脚本在 180 秒内没有观察到锁屏状态；这是测试环境限制，不是产品缺陷，锁屏门控沿用 2026-11-22 的实测记录。在 RDP 中重跑需要用 Ctrl+Alt+End → 锁定，或 `tsdiscon` 断开后重连。
 

@@ -242,10 +242,11 @@ const item = program.command("item").description("Create and change vault items"
 item
   .command("create")
   .description(
-    "Create a login. The password is read from standard input or generated, and is never printed.",
+    "Create a login or SSH key item. Secret values are read from standard input or generated, and are never printed.",
   )
   .requiredOption("--name <name>", "Item name")
   .requiredOption("--ref <name>", "Reference for ref:<name>; must not be used by another item")
+  .option("--type <type>", "Item type: login (default) or ssh", "login")
   .option("--username <username>")
   .option(
     "--url <url>",
@@ -256,7 +257,48 @@ item
   .option("--password-stdin", "Read the password from standard input")
   .option("--generate-password", "Generate a password and store it without showing it")
   .option("--length <number>", "Generated password length, 8 to 128 (default 24)")
+  .option("--private-key-stdin", "Read an SSH private key from standard input (ssh type)")
+  .option(
+    "--generate-key",
+    "Generate an Ed25519 key pair and store it without showing it (ssh type)",
+  )
   .action(async (options) => {
+    if (options.type === "ssh") {
+      if (
+        options.username !== undefined ||
+        options.url.length > 0 ||
+        options.passwordStdin ||
+        options.generatePassword ||
+        options.length !== undefined
+      ) {
+        throw new AkbError(
+          "INVALID_OPTIONS",
+          "Username, url, password and length options are for logins.",
+          2,
+        );
+      }
+      if (options.privateKeyStdin && options.generateKey) {
+        throw new AkbError(
+          "INVALID_OPTIONS",
+          "Use either --private-key-stdin or --generate-key.",
+          2,
+        );
+      }
+      await send("create", {
+        type: "ssh",
+        name: options.name,
+        ref: options.ref,
+        ...(options.privateKeyStdin ? { privateKey: await readValue() } : {}),
+        ...(options.generateKey ? { generate: "1" } : {}),
+      });
+      return;
+    }
+    if (options.type !== "login") {
+      throw new AkbError("INVALID_ARGUMENT", "Item type must be login or ssh.", 2);
+    }
+    if (options.privateKeyStdin || options.generateKey) {
+      throw new AkbError("INVALID_OPTIONS", "Key options need --type ssh.", 2);
+    }
     if (options.passwordStdin && options.generatePassword) {
       throw new AkbError(
         "INVALID_OPTIONS",
@@ -276,10 +318,10 @@ item
   });
 item
   .command("set <ref>")
-  .description("Change one field of a login and leave the rest of the item as it is")
-  .requiredOption("--field <name>", "password, username, notes, totp, custom:<name>")
+  .description("Change one field of an item and leave the rest of the item as it is")
+  .requiredOption("--field <name>", "password, username, notes, totp, private_key, custom:<name>")
   .option("--stdin", "Read the new value from standard input")
-  .option("--generate", "Generate a new password (password field only)")
+  .option("--generate", "Generate a new value (password or private_key field only)")
   .option("--length <number>", "Generated password length, 8 to 128 (default 24)")
   .action(async (ref: string, options) => {
     if (options.stdin && options.generate) {

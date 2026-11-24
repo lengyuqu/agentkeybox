@@ -165,7 +165,7 @@ const TOOLS: Tool[] = [
               field: {
                 type: "string",
                 description:
-                  "password (default), username, notes, totp, or custom:<name>. totp injects the current code.",
+                  "password (default), username, notes, totp, private_key or public_key (SSH key items), or custom:<name>. totp injects the current code.",
               },
             },
             required: ["name", "ref"],
@@ -297,13 +297,18 @@ const TOOLS: Tool[] = [
   {
     name: "akb_create",
     description:
-      "Create a login with a generated password. You cannot choose the password: it is stored without being shown, and you use it through akb_run. The reference must not be used by another item.",
+      "Create a login with a generated password, or an SSH key item with a generated Ed25519 key pair (type: ssh). You cannot choose the secret: it is stored without being shown, and you use it through akb_run. The reference must not be used by another item.",
     write: true,
     inputSchema: {
       type: "object",
       properties: {
         name: { type: "string" },
         ref: { type: "string", description: "New reference name (without the ref: prefix)." },
+        type: {
+          type: "string",
+          enum: ["login", "ssh"],
+          description: "Default login. ssh takes no username, urls or length.",
+        },
         username: { type: "string" },
         urls: { type: "array", maxItems: 16, items: { type: "string" } },
         length: { type: "integer", minimum: 8, maximum: 128, description: "Default 24." },
@@ -311,12 +316,27 @@ const TOOLS: Tool[] = [
       required: ["name", "ref"],
     },
     call: (input, deps) => {
+      const type = text(input, "type") ?? "login";
+      if (type !== "login" && type !== "ssh") {
+        throw invalid("Item type must be login or ssh.");
+      }
       const urls = input.urls ?? [];
       if (!Array.isArray(urls) || urls.some((url) => typeof url !== "string")) {
         throw invalid("Provide urls as a list of strings.");
       }
       const username = text(input, "username");
       const length = whole(input, "length");
+      if (type === "ssh") {
+        if (username !== undefined || urls.length > 0 || length !== undefined) {
+          throw invalid("Username, urls and length are for logins.");
+        }
+        return deps.perform("create", {
+          type: "ssh",
+          name: text(input, "name", true) as string,
+          ref: text(input, "ref", true) as string,
+          generate: "1",
+        });
+      }
       return deps.perform("create", {
         name: text(input, "name", true) as string,
         ref: text(input, "ref", true) as string,
@@ -330,21 +350,33 @@ const TOOLS: Tool[] = [
   {
     name: "akb_rotate",
     description:
-      "Replace a login's password with a newly generated one. The new value is stored without being shown.",
+      "Replace a login's password, or an SSH key item's key pair (field: private_key), with a newly generated one. The new value is stored without being shown.",
     write: true,
     inputSchema: {
       type: "object",
       properties: {
         ref: REF,
+        field: {
+          type: "string",
+          enum: ["password", "private_key"],
+          description: "Default password. private_key generates a new Ed25519 key pair.",
+        },
         length: { type: "integer", minimum: 8, maximum: 128, description: "Default 24." },
       },
       required: ["ref"],
     },
     call: (input, deps) => {
+      const field = text(input, "field") ?? "password";
+      if (field !== "password" && field !== "private_key") {
+        throw invalid("Field must be password or private_key.");
+      }
       const length = whole(input, "length");
+      if (field === "private_key" && length !== undefined) {
+        throw invalid("Length is for passwords.");
+      }
       return deps.perform("set", {
         ref: text(input, "ref", true) as string,
-        field: "password",
+        field,
         generate: "1",
         ...(length === undefined ? {} : { length }),
       });

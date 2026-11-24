@@ -671,6 +671,158 @@ try {
   );
   pass("a single-field change preserves the reference, address, username, password and totp");
 
+  // SSH key items. The fixture key pair is made here only to have a known private key to
+  // import; the expected OpenSSH public key is derived independently of the SDK.
+  const sshFixture = () => {
+    const pair = generateKeyPairSync("ed25519");
+    const spki = pair.publicKey.export({ type: "spki", format: "der" });
+    const raw = spki.subarray(spki.length - 32);
+    const blob = Buffer.concat([
+      Buffer.from([0, 0, 0, 11]),
+      Buffer.from("ssh-ed25519"),
+      Buffer.from([0, 0, 0, 32]),
+      raw,
+    ]);
+    return {
+      pem: pair.privateKey.export({ type: "pkcs8", format: "pem" }),
+      openSshPublic: `ssh-ed25519 ${blob.toString("base64")}`,
+    };
+  };
+  const sshField = (ref, field) =>
+    akb(["credential", "get", `ref:${ref}`, "--field", field, "--raw"]).then((r) => r.stdout);
+  const sshGen = await akb([
+    "item",
+    "create",
+    "--type",
+    "ssh",
+    "--name",
+    "AKB SSH",
+    "--ref",
+    "test/ssh-gen",
+    "--generate-key",
+    "--json",
+  ]);
+  assert.equal(sshGen.json.data.created, true);
+  assert.ok(sshGen.json.data.credential_fields.includes("private_key"));
+  assert.ok(sshGen.json.data.credential_fields.includes("public_key"));
+  const genPrivate = await sshField("test/ssh-gen", "private_key");
+  assert.match(genPrivate, /^-----BEGIN OPENSSH PRIVATE KEY-----/);
+  const genPublic = await sshField("test/ssh-gen", "public_key");
+  assert.match(genPublic, /^ssh-ed25519 /);
+  assert.ok(!sshGen.stdout.includes(genPrivate), "Create never prints the generated private key");
+  await akb(
+    [
+      "item",
+      "create",
+      "--type",
+      "ssh",
+      "--name",
+      "Again",
+      "--ref",
+      "test/ssh-gen",
+      "--generate-key",
+      "--json",
+    ],
+    undefined,
+    6,
+  );
+  await akb(
+    [
+      "item",
+      "create",
+      "--type",
+      "ssh",
+      "--name",
+      "x",
+      "--ref",
+      "test/ssh-x",
+      "--generate-key",
+      "--username",
+      "me",
+      "--json",
+    ],
+    undefined,
+    2,
+  );
+  const fixture = sshFixture();
+  await akb(
+    [
+      "item",
+      "create",
+      "--type",
+      "ssh",
+      "--name",
+      "AKB SSH Import",
+      "--ref",
+      "test/ssh-import",
+      "--private-key-stdin",
+      "--json",
+    ],
+    fixture.pem,
+  );
+  assert.ok(
+    (await sshField("test/ssh-import", "public_key")).startsWith(fixture.openSshPublic),
+    "The stored public key belongs to the imported private key",
+  );
+  assert.match(
+    await sshField("test/ssh-import", "private_key"),
+    /^-----BEGIN OPENSSH PRIVATE KEY-----/,
+  );
+  const badKey = await akb(
+    [
+      "item",
+      "create",
+      "--type",
+      "ssh",
+      "--name",
+      "Bad",
+      "--ref",
+      "test/ssh-bad",
+      "--private-key-stdin",
+      "--json",
+    ],
+    "not a key\n",
+    2,
+  );
+  assert.equal(badKey.json.error.code, "INVALID_SSH_KEY");
+  assert.ok(!badKey.stdout.includes("not a key") && !badKey.stderr.includes("not a key"));
+  pass("item create --type ssh stores generated and imported key pairs without printing them");
+
+  await akb(["item", "set", "ref:test/ssh-gen", "--field", "private_key", "--generate"]);
+  const rotatedPublic = await sshField("test/ssh-gen", "public_key");
+  assert.match(rotatedPublic, /^ssh-ed25519 /);
+  assert.notEqual(rotatedPublic, genPublic);
+  const fixture2 = sshFixture();
+  await akb(["item", "set", "ref:test/ssh-gen", "--field", "private_key", "--stdin"], fixture2.pem);
+  assert.ok((await sshField("test/ssh-gen", "public_key")).startsWith(fixture2.openSshPublic));
+  await akb(
+    ["item", "set", "ref:test/created", "--field", "private_key", "--generate", "--json"],
+    undefined,
+    10,
+  );
+  await akb(
+    ["item", "set", "ref:test/ssh-gen", "--field", "public_key", "--stdin", "--json"],
+    "x",
+    2,
+  );
+  pass("item set replaces an SSH key pair by generation or import, and refuses other targets");
+
+  const sshInjected = await akb([
+    "run",
+    "--env",
+    "SSH_KEY=ref:test/ssh-gen#private_key",
+    "--",
+    process.execPath,
+    "-e",
+    `process.stdout.write(String(process.env.SSH_KEY.startsWith("-----BEGIN OPENSSH PRIVATE KEY-----")) + "|"); console.log(process.env.SSH_KEY)`,
+  ]);
+  assert.equal(
+    sshInjected.stdout,
+    "true|[REDACTED:SSH_KEY]\n",
+    "Child sees the exact private key; multi-line output is redacted as a whole",
+  );
+  pass("run injects an SSH private key and redacts it from the output");
+
   const seedBytes = randomBytes(20);
   await akb(
     ["item", "set", "ref:test/created", "--field", "totp", "--stdin"],
@@ -1214,7 +1366,15 @@ try {
     audited.some((entry) => entry.targets?.some((t) => t.env === "TOKEN" && t.id)),
     "run records which variable got which item",
   );
-  for (const hidden of [secret, totpSeed, generated, regenerated, rotatedValue, given]) {
+  for (const hidden of [
+    secret,
+    totpSeed,
+    generated,
+    regenerated,
+    rotatedValue,
+    given,
+    genPrivate,
+  ]) {
     assert.ok(!auditText.includes(hidden), "The audit log never contains a value");
   }
   pass("the audit log records each access with references only, never values");

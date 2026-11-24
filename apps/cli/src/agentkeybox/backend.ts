@@ -10,6 +10,7 @@ import { CipherRepromptType, CipherType } from "@bitwarden/common/vault/enums";
 import { Cipher } from "@bitwarden/common/vault/models/domain/cipher";
 import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 import { ENCRYPTED_CIPHERS } from "@bitwarden/common/vault/services/key-state/ciphers.state";
+import { generate_ssh_key, import_ssh_key } from "@bitwarden/sdk-internal";
 
 import { LockCommand } from "../auth/commands/lock.command";
 import { LoginCommand } from "../auth/commands/login.command";
@@ -47,14 +48,19 @@ import {
 import { requireActiveScreen, screenState } from "./screen";
 import {
   applyField,
+  applySshKey,
   assertEditable,
   assertReferenceFree,
   FieldChange,
   NewLogin,
   newLoginView,
+  NewSshKey,
+  newSshKeyView,
   parseExactRef,
   parseFieldChange,
   parseNewLogin,
+  parseNewSshKey,
+  SshKeyMaterial,
   writeFailure,
 } from "./write";
 
@@ -174,20 +180,80 @@ export class Backend {
     }
   }
 
+  /** SSH key pairs come from the upstream SDK, like TOTP codes. Nothing here prints them. */
+  private generateSshKey(): SshKeyMaterial {
+    try {
+      const { privateKey, publicKey, fingerprint } = generate_ssh_key("Ed25519");
+      return { privateKey, publicKey, keyFingerprint: fingerprint };
+    } catch {
+      throw new AkbError("SSH_KEY_FAILED", "The SSH key pair could not be generated.", 8);
+    }
+  }
+
+  private importSshKey(privateKey: string): SshKeyMaterial {
+    try {
+      const material = import_ssh_key(privateKey);
+      return {
+        privateKey: material.privateKey,
+        publicKey: material.publicKey,
+        keyFingerprint: material.fingerprint,
+      };
+    } catch {
+      // The SDK error can quote the key; only a fixed message leaves this process.
+      throw new AkbError(
+        "INVALID_SSH_KEY",
+        "Provide an unencrypted OpenSSH or PKCS8 private key (ed25519 or RSA).",
+        2,
+      );
+    }
+  }
+
+  private async createSsh(items: CipherView[], key: NewSshKey, userId: UserId): Promise<unknown> {
+    assertReferenceFree(items, key.ref);
+    const material = key.generate
+      ? this.generateSshKey()
+      : this.importSshKey(key.privateKey as string);
+    try {
+      const created = await this.services.cipherService.createWithServer(
+        newSshKeyView(key, material),
+        userId,
+      );
+      if (!created?.id) {
+        throw new Error("No item was returned");
+      }
+      // The reply describes the item. It never contains the private key.
+      return { ...metadata(created), created: true };
+    } catch (error) {
+      throw writeFailure(error);
+    }
+  }
+
   private async set(items: CipherView[], change: FieldChange, userId: UserId): Promise<unknown> {
     // Reject a seed that cannot produce codes now, rather than store one that never works.
     if (change.field === "totp" && !(await this.totp((change.value ?? "").trim(), 0))) {
       throw new AkbError("INVALID_TOTP", "The one-time code seed is not valid.", 2);
     }
     // Made once, so a retry after a conflict stores the same value.
-    const value = change.generate
-      ? await this.generatePassword(change.length)
-      : (change.value as string);
+    let value: string | undefined;
+    let sshMaterial: SshKeyMaterial | undefined;
+    if (change.field === "private_key") {
+      sshMaterial = change.generate
+        ? this.generateSshKey()
+        : this.importSshKey(change.value as string);
+    } else {
+      value = change.generate
+        ? await this.generatePassword(change.length)
+        : (change.value as string);
+    }
     let current = items;
     for (let attempt = 0; ; attempt++) {
       const found = selectItem(current, change.ref);
       const view = current.find((item) => item.id === found.id) as CipherView;
-      applyField(view, change.field, value);
+      if (sshMaterial) {
+        applySshKey(view, sshMaterial);
+      } else {
+        applyField(view, change.field, value as string);
+      }
       try {
         const updated = await this.services.cipherService.updateWithServer(view, userId);
         if (!updated?.id) {
@@ -628,7 +694,18 @@ export class Backend {
     if (trashed && url) {
       throw new AkbError("INVALID_ARGUMENT", "Use --trashed with --search, not with --url.", 2);
     }
-    const newLogin = request.operation === "create" ? parseNewLogin(a) : undefined;
+    if (
+      request.operation === "create" &&
+      a.type !== undefined &&
+      a.type !== "login" &&
+      a.type !== "ssh"
+    ) {
+      throw new AkbError("INVALID_ARGUMENT", "Item type must be login or ssh.", 2);
+    }
+    const newSshKey =
+      request.operation === "create" && a.type === "ssh" ? parseNewSshKey(a) : undefined;
+    const newLogin =
+      request.operation === "create" && a.type !== "ssh" ? parseNewLogin(a) : undefined;
     const change = request.operation === "set" ? parseFieldChange(a) : undefined;
     const doomed = request.operation === "delete" ? parseExactRef(a.ref) : undefined;
     const revived = request.operation === "restore" ? parseExactRef(a.ref) : undefined;
@@ -647,6 +724,8 @@ export class Backend {
           field: auditField(spec.field),
         })),
       );
+    } else if (newSshKey) {
+      targets.push({ ref: auditSelector(`ref:${newSshKey.ref}`), field: "private_key" });
     } else if (newLogin) {
       targets.push({ ref: auditSelector(`ref:${newLogin.ref}`), field: "password" });
     } else if (change) {
@@ -715,6 +794,9 @@ export class Backend {
       secretSpecs.forEach((spec, index) => {
         targets[index].id = selectItem(items, spec.ref).id;
       });
+    } else if (newSshKey) {
+      result = await this.createSsh(items, newSshKey, account.id);
+      targets[0].id = (result as { id: string }).id;
     } else if (newLogin) {
       result = await this.create(items, newLogin, account.id);
       targets[0].id = (result as { id: string }).id;

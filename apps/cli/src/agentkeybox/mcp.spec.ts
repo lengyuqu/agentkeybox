@@ -167,6 +167,35 @@ describe("MCP tools", () => {
     expect((await result(d, "akb_find", { trashed: "yes" })).isError).toBe(true);
   });
 
+  it("creates and rotates SSH keys only by generation", async () => {
+    const d = deps();
+    await result(d, "akb_create", { name: "Deploy", ref: "ssh/deploy", type: "ssh" });
+    expect(d.perform).toHaveBeenLastCalledWith("create", {
+      type: "ssh",
+      name: "Deploy",
+      ref: "ssh/deploy",
+      generate: "1",
+    });
+    await result(d, "akb_rotate", { ref: "ref:ssh/deploy", field: "private_key" });
+    expect(d.perform).toHaveBeenLastCalledWith("set", {
+      ref: "ref:ssh/deploy",
+      field: "private_key",
+      generate: "1",
+    });
+    for (const args of [
+      { name: "x", ref: "r", type: "ssh", username: "me" },
+      { name: "x", ref: "r", type: "ssh", urls: ["a.test"] },
+      { name: "x", ref: "r", type: "ssh", length: 32 },
+      { name: "x", ref: "r", type: "card" },
+    ]) {
+      expect((await result(d, "akb_create", args)).isError).toBe(true);
+    }
+    expect((await result(d, "akb_rotate", { ref: "ref:x", field: "totp" })).isError).toBe(true);
+    expect(
+      (await result(d, "akb_rotate", { ref: "ref:x", field: "private_key", length: 32 })).isError,
+    ).toBe(true);
+  });
+
   it("reports failures as tool errors with only the fixed message", async () => {
     const d = deps({
       perform: jest.fn().mockRejectedValue(new AkbError("NOT_FOUND", "Account not found.", 5)),

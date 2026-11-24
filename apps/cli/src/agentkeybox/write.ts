@@ -2,6 +2,7 @@ import { CipherExport } from "@bitwarden/common/models/export/cipher.export";
 import { FieldExport } from "@bitwarden/common/models/export/field.export";
 import { LoginUriExport } from "@bitwarden/common/models/export/login-uri.export";
 import { LoginExport } from "@bitwarden/common/models/export/login.export";
+import { SshKeyExport } from "@bitwarden/common/models/export/ssh-key.export";
 import { CipherType, FieldType } from "@bitwarden/common/vault/enums";
 import { CipherView } from "@bitwarden/common/vault/models/view/cipher.view";
 
@@ -34,6 +35,21 @@ export interface FieldChange {
   value?: string;
   generate: boolean;
   length: number;
+}
+
+export interface NewSshKey {
+  name: string;
+  ref: string;
+  /** Present when the caller supplied the private key. Otherwise AKB generates a key pair. */
+  privateKey?: string;
+  generate: boolean;
+}
+
+/** A private key with the public key and fingerprint the SDK derived from it. */
+export interface SshKeyMaterial {
+  privateKey: string;
+  publicKey: string;
+  keyFingerprint: string;
 }
 
 function invalid(message: string): AkbError {
@@ -106,6 +122,21 @@ export function parseNewLogin(args: Record<string, string>): NewLogin {
   };
 }
 
+export function parseNewSshKey(args: Record<string, string>): NewSshKey {
+  const name = args.name?.trim();
+  if (!name || name.length > MAX_NAME_LENGTH) {
+    throw invalid("Provide a name of up to 200 characters.");
+  }
+  const generate = args.generate === "1";
+  if (generate === (args.privateKey !== undefined)) {
+    throw invalid("Provide the private key on standard input, or ask for a generated one.");
+  }
+  if (args.privateKey !== undefined) {
+    checkSize(args.privateKey);
+  }
+  return { name, ref: parseReferenceName(args.ref), privateKey: args.privateKey, generate };
+}
+
 /**
  * The seed formats the upstream TOTP service documents: a base32 secret, an `otpauth://totp/`
  * address with a secret, or a `steam://` secret. The SDK will produce a "code" from almost any
@@ -124,7 +155,7 @@ export function isTotpSeed(value: string): boolean {
   return /^[A-Za-z2-7]{8,}=*$/.test(secret);
 }
 
-const CHANGEABLE = /^(password|username|notes|totp|custom:.+)$/;
+const CHANGEABLE = /^(password|username|notes|totp|private_key|custom:.+)$/;
 
 export function parseFieldChange(args: Record<string, string>): FieldChange {
   const field = args.field;
@@ -135,8 +166,8 @@ export function parseFieldChange(args: Record<string, string>): FieldChange {
     throw new AkbError("RESERVED_FIELD", "This field is managed by AgentKeybox.", 2);
   }
   const generate = args.generate === "1";
-  if (generate && field !== "password") {
-    throw invalid("Only the password field can be generated.");
+  if (generate && field !== "password" && field !== "private_key") {
+    throw invalid("Only the password and private_key fields can be generated.");
   }
   if (generate === (args.value !== undefined)) {
     throw invalid("Provide the value on standard input, or ask for a generated password.");
@@ -180,6 +211,38 @@ export function newLoginView(login: NewLogin, password: string): CipherView {
   credentials.fido2Credentials = [];
   request.login = credentials;
   return CipherExport.toView(request);
+}
+
+/** Build an SSH key item. The key material comes from the SDK, never from the reply. */
+export function newSshKeyView(key: NewSshKey, material: SshKeyMaterial): CipherView {
+  const request = CipherExport.template();
+  request.type = CipherType.SshKey;
+  request.name = key.name;
+  request.notes = undefined;
+  request.fields = [
+    Object.assign(new FieldExport(), {
+      name: REFERENCE_FIELD,
+      value: key.ref,
+      type: FieldType.Text,
+    }),
+  ];
+  request.sshKey = Object.assign(new SshKeyExport(), material);
+  return CipherExport.toView(request);
+}
+
+/** Replace the whole key pair: the public key and fingerprint belong to the private key. */
+export function applySshKey(view: CipherView, material: SshKeyMaterial) {
+  assertEditable(view);
+  if (view.type !== CipherType.SshKey || view.sshKey == null) {
+    throw new AkbError(
+      "UNSUPPORTED_FIELD",
+      "A private key can only be set on an SSH key item.",
+      10,
+    );
+  }
+  view.sshKey.privateKey = material.privateKey;
+  view.sshKey.publicKey = material.publicKey;
+  view.sshKey.keyFingerprint = material.keyFingerprint;
 }
 
 /** A reference names one login. Creating a second one with the same name would be ambiguous. */

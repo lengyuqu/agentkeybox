@@ -4,12 +4,15 @@ import { CipherType, FieldType } from "@bitwarden/common/vault/enums";
 import { AkbError } from "./protocol";
 import {
   applyField,
+  applySshKey,
   assertEditable,
   assertReferenceFree,
   newLoginView,
+  newSshKeyView,
   parseExactRef,
   parseFieldChange,
   parseNewLogin,
+  parseNewSshKey,
   isTotpSeed,
   parseReferenceName,
   writeFailure,
@@ -102,14 +105,21 @@ describe("parseReferenceName", () => {
 
 describe("parseFieldChange", () => {
   it("accepts the changeable fields", () => {
-    for (const field of ["password", "username", "notes", "totp", "custom:api key"]) {
+    for (const field of [
+      "password",
+      "username",
+      "notes",
+      "totp",
+      "private_key",
+      "custom:api key",
+    ]) {
       const value = field === "totp" ? "JBSWY3DPEHPK3PXP" : "v";
       expect(parseFieldChange({ ref: "ref:x", field, value }).field).toBe(field);
     }
   });
 
   it("refuses fields it cannot change", () => {
-    for (const field of ["private_key", "public_key", "custom:", "name", "", undefined]) {
+    for (const field of ["public_key", "custom:", "name", "", undefined]) {
       expect(() => parseFieldChange({ ref: "ref:x", field: field as string, value: "v" })).toThrow(
         "Use password",
       );
@@ -122,8 +132,11 @@ describe("parseFieldChange", () => {
     ).toThrow("managed by AgentKeybox");
   });
 
-  it("generates only passwords, and needs exactly one source", () => {
+  it("generates only passwords and private keys, and needs exactly one source", () => {
     expect(parseFieldChange({ ref: "ref:x", field: "password", generate: "1" }).generate).toBe(
+      true,
+    );
+    expect(parseFieldChange({ ref: "ref:x", field: "private_key", generate: "1" }).generate).toBe(
       true,
     );
     expect(() => parseFieldChange({ ref: "ref:x", field: "totp", generate: "1" })).toThrow(
@@ -132,6 +145,9 @@ describe("parseFieldChange", () => {
     expect(() => parseFieldChange({ ref: "ref:x", field: "password" })).toThrow("standard input");
     expect(() =>
       parseFieldChange({ ref: "ref:x", field: "password", value: "v", generate: "1" }),
+    ).toThrow("standard input");
+    expect(() =>
+      parseFieldChange({ ref: "ref:x", field: "private_key", value: "v", generate: "1" }),
     ).toThrow("standard input");
   });
 });
@@ -147,6 +163,101 @@ describe("newLoginView", () => {
     expect(view.fields).toHaveLength(1);
     expect(view.fields[0]).toMatchObject({ name: "agentkeybox.ref", value: "github/ci" });
     expect(view.notes).toBeUndefined();
+  });
+});
+
+const sshMaterial = {
+  privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n-----END OPENSSH PRIVATE KEY-----",
+  publicKey: "ssh-ed25519 AAAAFIXTURE comment",
+  keyFingerprint: "SHA256:FIXTURE",
+};
+
+describe("parseNewSshKey", () => {
+  it("accepts a generated key pair", () => {
+    expect(parseNewSshKey({ name: "Deploy", ref: "ssh/deploy", generate: "1" })).toMatchObject({
+      name: "Deploy",
+      ref: "ssh/deploy",
+      generate: true,
+    });
+  });
+
+  it("accepts a private key given on standard input", () => {
+    const parsed = parseNewSshKey({ name: "x", ref: "r", privateKey: sshMaterial.privateKey });
+    expect(parsed).toMatchObject({ generate: false, privateKey: sshMaterial.privateKey });
+  });
+
+  it("requires exactly one source for the private key", () => {
+    expect(() => parseNewSshKey({ name: "x", ref: "r" })).toThrow("private key");
+    expect(() => parseNewSshKey({ name: "x", ref: "r", privateKey: "k", generate: "1" })).toThrow(
+      "private key",
+    );
+  });
+
+  it("requires a name and bounds sizes", () => {
+    expect(() => parseNewSshKey({ name: "  ", ref: "r", generate: "1" })).toThrow("name");
+    expect(() => parseNewSshKey({ name: "x".repeat(201), ref: "r", generate: "1" })).toThrow(
+      "name",
+    );
+    expect(() => parseNewSshKey({ name: "x", ref: "r", privateKey: "k".repeat(70_000) })).toThrow(
+      "size limit",
+    );
+  });
+});
+
+describe("newSshKeyView", () => {
+  it("builds an SSH key item with the reference and the SDK's material", () => {
+    const view = newSshKeyView(
+      parseNewSshKey({ name: "Deploy", ref: "ssh/deploy", generate: "1" }),
+      sshMaterial,
+    );
+    expect(view.type).toBe(CipherType.SshKey);
+    expect(view.name).toBe("Deploy");
+    // The framework keeps an empty default login view; it carries no credentials.
+    expect(view.login?.password).toBeFalsy();
+    expect(view.login?.username).toBeFalsy();
+    expect(view.login?.uris ?? []).toHaveLength(0);
+    expect(view.sshKey).toMatchObject(sshMaterial);
+    expect(view.fields).toHaveLength(1);
+    expect(view.fields[0]).toMatchObject({ name: "agentkeybox.ref", value: "ssh/deploy" });
+    expect(view.notes).toBeUndefined();
+  });
+});
+
+describe("applySshKey", () => {
+  const sshView = () => {
+    const view = newSshKeyView(
+      parseNewSshKey({ name: "Deploy", ref: "ssh/deploy", generate: "1" }),
+      sshMaterial,
+    );
+    view.edit = true;
+    return view;
+  };
+  const replacement = {
+    privateKey: "-----BEGIN OPENSSH PRIVATE KEY-----\nnew\n-----END OPENSSH PRIVATE KEY-----",
+    publicKey: "ssh-ed25519 AAAANEW comment",
+    keyFingerprint: "SHA256:NEW",
+  };
+
+  it("replaces the whole key pair and keeps the reference", () => {
+    const view = sshView();
+    applySshKey(view, replacement);
+    expect(view.sshKey).toMatchObject(replacement);
+    expect(view.fields[0]).toMatchObject({ name: "agentkeybox.ref", value: "ssh/deploy" });
+  });
+
+  it("refuses items that are not SSH keys", () => {
+    expect(() => applySshKey(login(), replacement)).toThrow(
+      expect.objectContaining({ code: "UNSUPPORTED_FIELD", exitCode: 10 }),
+    );
+  });
+
+  it("refuses to change a read-only item", () => {
+    const view = sshView();
+    view.edit = false;
+    expect(() => applySshKey(view, replacement)).toThrow(
+      expect.objectContaining({ code: "PERMISSION_DENIED" }),
+    );
+    expect(view.sshKey).toMatchObject(sshMaterial);
   });
 });
 
