@@ -33,6 +33,7 @@
 | Windows 锁屏门控的端到端步骤（`AKB_TEST_SCREEN_LOCK`） | 2026-11-22 实测通过：真实锁屏时拒绝读取，解锁后无需重新输入主密码即可同步和读取。2026-11-23 在 RDP 会话中重试未成功（见“验证”），沿用前次记录               |
 | 打包出的 `akb.exe`（`dist:akb:win-x64`）               | 通过：2026-11-23 用修复后的构建重跑 30 项端到端检查，退出码 0（带空格路径、PATH 排除 Node/npm/bw）；锁屏步骤见上一行                                        |
 | Windows 普通权限（标准用户 / UAC 开启）环境            | **没有验证。** 验证机是内置 Administrator 账户且 UAC 关闭，所有进程都持完整令牌；私有 TEMP 只满足目录检查，不等同于标准用户环境                             |
+| Windows，代理路径（`http_proxy`/`https_proxy`）        | 通过。2026-11-24 用独立进程的记录代理实测 4 轮登录（源码构建与打包 exe），流量全部经代理隧道，未绕过，见“验证”                                              |
 
 ### 没有验证过的
 
@@ -282,6 +283,8 @@ node apps/cli/scripts/agentkeybox-e2e.mjs
 随后在桌面解锁状态下完整重跑（锁屏步骤关闭，因为已在第一轮实测），30 项通过、退出码 0。断网读取返回 `SYNC_FAILED`，登出响应及紧随其后的状态查询均为 `unauthenticated`、`screen_state: unlocked`，重复登出通过。另一次聚焦断网、登出和重复登出的测试也得到相同结果；第一次异常未复现，不能断言其原因。本次环境为提升权限的管理员会话，测试使用限制访问的临时目录，并将测试进程的默认文件所有者设为当前用户，以满足目录检查；它不代替普通权限用户环境的验收。
 
 2026-11-23 Windows 重跑（移除商业模块后）：源码构建与独立版各 30 项通过、退出码 0，单元测试 167 项全部通过，类型检查无错误。过程中发现并修复一个独立版专属缺陷：配置 `http_proxy`/`https_proxy` 时登录崩溃（`ReferenceError: Cannot access 'HttpsProxyAgent' before initialization`）。原因是 `https-proxy-agent` 9.1.0 的新依赖 `proxy-agent-negotiate` 为纯 ESM（只有 `exports`、没有 `main`），不在 webpack 的打包 allowlist 里，pkg 无法把它纳入快照；源码构建在运行时从 `node_modules` 解析，所以不受影响。已将它加入 `apps/cli/webpack.base.js` 的 allowlist，并在带代理变量的环境下用临时真实 Vaultwarden 复现、验证修复。2026-11-22 的验收终端没有代理变量，因此当时没有暴露这条路径。
+
+2026-11-24 代理路径复核（两仓库历史同源后）：用独立进程里记录 CONNECT 的代理加临时真实 Vaultwarden，跑了 4 轮登录——源码构建（node26，`NODE_USE_ENV_PROXY` 关/开各一轮）、打包 exe（node22）、exe 加 `NO_PROXY=127.0.0.1,localhost`——全部成功，代理共记录 24 个 CONNECT，目标全部是 vault 地址，确认流量没有绕过代理。机制上，`node-api.service.ts` 把全局 fetch 替换为 node-fetch 2.7.0，它会读取 `request.agent` 上的 `HttpsProxyAgent`，因此“原生 fetch 忽略 agent、代理被绕过”的怀疑不成立。一个已知限制：这条 agent 路径不读 `NO_PROXY`，回环地址也会走代理（与上游行为一致，代理能正确隧道回环流量，不影响功能）。测试方法上有一个实际踩过的坑：记录代理必须跑在独立进程里，否则编排脚本的 spawnSync 会阻塞它的事件循环，CONNECT 无人应答，所有轮次都会假性挂起。
 
 本轮环境说明：验证机是内置 Administrator 账户且 UAC 关闭（`EnableLUA=0`），不存在当前用户的普通权限令牌，普通权限环境的验收仍待在有标准用户或开启 UAC 的机器上做。系统 `Temp` 的 ACL 被其他沙箱工具加入了额外的组（Modify 权限），AKB 的 `UNSAFE_DIRECTORY` 检查正确地拒绝了它；测试改用当前用户所有、DACL 干净的私有目录作为 `TEMP`。OpenSSL 用最小配置文件绕开本机配置里的 `keyid:nonss` 笔误。这两项都只影响测试环境，不改变产品检查。锁屏步骤本轮重试失败：验证机通过 RDP 接入，Win+L 锁定的是本地客户端而不是远程会话，脚本在 180 秒内没有观察到锁屏状态；这是测试环境限制，不是产品缺陷，锁屏门控沿用 2026-11-22 的实测记录。在 RDP 中重跑需要用 Ctrl+Alt+End → 锁定，或 `tsdiscon` 断开后重连。
 
